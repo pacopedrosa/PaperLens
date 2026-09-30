@@ -7,7 +7,7 @@ Preguntas en lenguaje natural sobre una colección de papers, con respuestas
 basadas solo en los documentos y citas a paper y página.
 
 ## Stack
-Python · FastAPI · PostgreSQL + pgvector · bge-m3 · Claude API · Next.js
+Python · FastAPI · PostgreSQL + pgvector · bge-m3 · Ollama (any OpenAI-compatible LLM) · Next.js
 
 ## Puesta en marcha
     cp .env.example .env

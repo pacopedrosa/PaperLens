@@ -9,7 +9,7 @@ dependencies = [
     "pgvector",
     "pymupdf",
     "sentence-transformers",
-    "anthropic",
+    "openai",
     "pydantic-settings",
     "arxiv",
 ]
