@@ -8,3 +8,4 @@ data/pdfs/*
 .ruff_cache/
 node_modules/
 .next/
+*.egg-info/
