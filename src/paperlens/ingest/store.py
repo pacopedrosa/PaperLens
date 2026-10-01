@@ -4,9 +4,7 @@ from pgvector import Vector
 
 def document_exists(conn: psycopg.Connection, arxiv_id: str) -> bool:
     """True if this paper is already stored (used to make ingestion idempotent)."""
-    row = conn.execute(
-        "SELECT 1 FROM documents WHERE arxiv_id = %s", (arxiv_id,)
-    ).fetchone()
+    row = conn.execute("SELECT 1 FROM documents WHERE arxiv_id = %s", (arxiv_id,)).fetchone()
     return row is not None
 
 

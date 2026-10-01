@@ -4,7 +4,13 @@ from paperlens import rag
 from paperlens.llm.prompt import NOT_FOUND_MESSAGE
 
 CHUNKS = [
-    {"arxiv_id": "1111.0001", "title": "Paper A", "page": 2, "content": "a" * 500, "similarity": 0.9},
+    {
+        "arxiv_id": "1111.0001",
+        "title": "Paper A",
+        "page": 2,
+        "content": "a" * 500,
+        "similarity": 0.9,
+    },
     {"arxiv_id": "2222.0002", "title": "Paper B", "page": 5, "content": "short", "similarity": 0.7},
 ]
 

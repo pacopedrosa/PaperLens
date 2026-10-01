@@ -17,14 +17,13 @@ def search(conn: psycopg.Connection, question: str, k: int = 5) -> list[dict]:
         """,
         (query_vector, query_vector, k),
     ).fetchall()
-    return[
+    return [
         {
-            "arxiv_id":arxiv_id, 
-            "title":title,
-            "page":page,
-            "content":content,
-            "similarity":float(similarity)
+            "arxiv_id": arxiv_id,
+            "title": title,
+            "page": page,
+            "content": content,
+            "similarity": float(similarity),
         }
         for arxiv_id, title, page, content, similarity in rows
     ]
-    
