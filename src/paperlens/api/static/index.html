@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperLens</title>
+<meta name="description" content="Pregunta en lenguaje natural sobre papers de arXiv y obtén respuestas con citas verificables.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Ccircle cx='14' cy='14' r='6' fill='none' stroke='white' stroke-width='2.5'/%3E%3Cpath d='M19 19l6 6' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7fb; --surface: #ffffff; --surface-2: #f1f2f8; --border: #e3e5ee;
+    --text: #181a2a; --muted: #636880; --accent: #4f46e5; --accent-soft: #eceafd; --accent-text: #ffffff;
+    --ok: #16a34a; --err: #dc2626; --warn-bg: #fff7e6; --warn-border: #f5d58a;
+    --shadow: 0 1px 2px rgba(20,22,50,.05), 0 8px 24px rgba(20,22,50,.06);
+    --radius: 14px;
+    --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e0f17; --surface: #161824; --surface-2: #1e2030; --border: #2a2d42;
+    --text: #e9eaf4; --muted: #9a9fba; --accent: #7c75ff; --accent-soft: #24234a; --accent-text: #0e0f17;
+    --warn-bg: #2a2314; --warn-border: #5b4a1e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  /* The row is pinned to the viewport so only .chat scrolls, never the whole page. */
+  .app { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100vh; height: 100dvh; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 16px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -.01em; }
+  .logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #4f46e5, #8b5cf6); display: grid; place-items: center; }
+  .logo svg { width: 18px; height: 18px; stroke: #fff; fill: none; stroke-width: 2.4; stroke-linecap: round; }
+  .btn-new { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); font-weight: 500; display: flex; gap: 8px; align-items: center; justify-content: center; transition: border-color .15s, background .15s; }
+  .btn-new:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .side-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .side-text { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .examples { display: flex; flex-direction: column; gap: 6px; }
+  .example { text-align: left; padding: 9px 11px; border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--text); font-size: 13.5px; line-height: 1.4; transition: background .15s; }
+  .example:hover { background: var(--surface-2); border-color: var(--border); }
+  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--muted); }
+  .theme-btn { align-self: flex-start; padding: 7px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); font-size: 13px; }
+
+  /* Main */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(8px); }
+  .menu-btn { display: none; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; width: 38px; height: 38px; font-size: 18px; }
+  .topbar h1 { font-size: 15px; font-weight: 600; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status { white-space: nowrap; margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .status.down .dot { background: var(--err); }
+
+  .chat { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
+  .thread { max-width: 820px; margin: 0 auto; padding: 28px 24px 12px; display: flex; flex-direction: column; gap: 26px; }
+
+  /* Empty state */
+  .empty { max-width: 680px; margin: 0 auto; padding: 9vh 24px 0; text-align: center; }
+  .empty .logo { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 20px; box-shadow: 0 10px 30px rgba(79,70,229,.35); }
+  .empty .logo svg { width: 30px; height: 30px; }
+  .empty h2 { font-size: 30px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 10px; }
+  .empty p { color: var(--muted); margin: 0 auto 28px; max-width: 520px; }
+  .chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; text-align: left; }
+  .chip { text-align: left; padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); font-size: 14px; line-height: 1.45; transition: transform .15s, border-color .15s; }
+  .chip:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .chip small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+
+  /* Messages */
+  .row { display: flex; gap: 12px; animation: rise .25s ease both; }
+  .row.user { justify-content: flex-end; }
+  .bubble-user { max-width: 78%; background: var(--accent); color: var(--accent-text); padding: 11px 16px; border-radius: 18px 18px 4px 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .avatar { flex: none; width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, #4f46e5, #8b5cf6); display: grid; place-items: center; margin-top: 2px; }
+  .avatar svg { width: 17px; height: 17px; stroke: #fff; fill: none; stroke-width: 2.4; stroke-linecap: round; }
+  .answer { flex: 1; min-width: 0; }
+  .answer-body { overflow-wrap: anywhere; }
+  .answer-body > :first-child { margin-top: 0; }
+  .answer-body p { margin: 0 0 12px; }
+  .answer-body ul, .answer-body ol { padding-left: 22px; margin: 0 0 12px; }
+  .answer-body code { font-family: var(--mono); font-size: 13px; background: var(--surface-2); padding: 2px 6px; border-radius: 6px; }
+  .answer-body pre { background: var(--surface-2); border: 1px solid var(--border); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
+  .answer-body pre code { background: none; padding: 0; }
+  .answer-body blockquote { margin: 0 0 12px; padding: 2px 14px; border-left: 3px solid var(--accent); color: var(--muted); }
+  .answer-body .katex-display { overflow-x: auto; overflow-y: hidden; }
+  .cite { font: 600 11.5px var(--font); color: var(--accent); background: var(--accent-soft); border: 0; padding: 1px 6px; margin: 0 1px; border-radius: 6px; vertical-align: 1px; transition: background .15s, color .15s; }
+  .cite:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
+  .cite:disabled { opacity: .5; cursor: default; }
+  .toolbar { display: flex; gap: 6px; margin-top: 6px; }
+  .tool { border: 1px solid transparent; background: transparent; color: var(--muted); font-size: 12.5px; padding: 4px 9px; border-radius: 8px; }
+  .tool:hover { background: var(--surface-2); color: var(--text); }
+
+  .notfound { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius); background: var(--warn-bg); border: 1px solid var(--warn-border); }
+  .notfound strong { display: block; }
+  .notfound span { color: var(--muted); font-size: 13.5px; }
+
+  /* Sources */
+  .sources { margin-top: 14px; }
+  .sources-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .source-list { display: grid; gap: 8px; }
+  .source { display: flex; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); transition: border-color .2s, box-shadow .2s; }
+  .source.flash { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .badge { flex: none; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .source-body { min-width: 0; flex: 1; }
+  .source-title { color: var(--text); font-weight: 600; font-size: 14px; text-decoration: none; display: block; overflow-wrap: anywhere; }
+  .source-title:hover { color: var(--accent); text-decoration: underline; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .sim { display: inline-flex; align-items: center; gap: 6px; }
+  .sim-bar { width: 56px; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .sim-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .source details { margin-top: 6px; }
+  .source summary { cursor: pointer; font-size: 12.5px; color: var(--accent); list-style: none; }
+  .source summary::-webkit-details-marker { display: none; }
+  .snippet { margin: 6px 0 0; padding: 8px 11px; font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 8px; overflow-wrap: anywhere; }
+  .others { margin-top: 8px; }
+  .others > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+
+  /* Loading */
+  .loading { display: flex; flex-direction: column; gap: 9px; padding-top: 4px; }
+  .loading-text { color: var(--muted); font-size: 13.5px; display: flex; gap: 8px; align-items: center; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .skeleton { height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+  .error { padding: 12px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--err) 50%, var(--border)); background: color-mix(in srgb, var(--err) 8%, var(--surface)); }
+  .error button { margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+
+  /* Composer */
+  .composer-wrap { padding: 8px 24px 18px; }
+  .composer { max-width: 820px; margin: 0 auto; display: flex; align-items: flex-end; gap: 10px; padding: 10px 10px 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); transition: border-color .15s; }
+  .composer:focus-within { border-color: var(--accent); }
+  textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; line-height: 1.5; max-height: 160px; padding: 6px 0; }
+  textarea:focus-visible { outline: none; }   /* the composer already shows the focus ring */
+  textarea::placeholder { color: var(--muted); }
+  .send { flex: none; width: 38px; height: 38px; border: 0; border-radius: 11px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; transition: opacity .15s, transform .15s; }
+  .send:hover:not(:disabled) { transform: scale(1.06); }
+  .send:disabled { opacity: .4; cursor: not-allowed; }
+  .send svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .disclaimer { max-width: 820px; margin: 8px auto 0; text-align: center; font-size: 12px; color: var(--muted); }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes shimmer { to { background-position: -100% 0; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { position: fixed; inset: 0 auto 0 0; width: 290px; z-index: 20; transform: translateX(-100%); transition: transform .25s; box-shadow: var(--shadow); }
+    body.nav-open .sidebar { transform: none; }
+    body.nav-open::after { content: ""; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 10; }
+    .menu-btn { display: grid; place-items: center; }
+    #status-text { display: none; }
+    .topbar, .composer-wrap { padding-left: 16px; padding-right: 16px; }
+    .thread { padding: 20px 16px 8px; }
+    .chips { grid-template-columns: 1fr; }
+    .empty h2 { font-size: 24px; }
+    .bubble-user { max-width: 90%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navegación">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></div>
+      PaperLens
+    </div>
+    <button class="btn-new" id="new-chat" type="button">＋ Nueva conversación</button>
+    <div>
+      <p class="side-title">Prueba con</p>
+      <div class="examples" id="examples"></div>
+    </div>
+    <div>
+      <p class="side-title">Corpus</p>
+      <p class="side-text">Papers de arXiv sobre RAG y LLMs. Las respuestas se basan solo en estos documentos y citan paper y página.</p>
+    </div>
+    <div class="side-foot">
+      <button class="theme-btn" id="theme" type="button">Cambiar tema</button>
+      <span>LLM local con Ollama · embeddings bge-m3 · pgvector</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menu" type="button" aria-label="Abrir menú">☰</button>
+      <h1>Asistente de investigación</h1>
+      <span class="status" id="status"><span class="dot"></span><span id="status-text">Comprobando…</span></span>
+    </header>
+
+    <div class="chat" id="chat" role="log" aria-live="polite" aria-label="Conversación"></div>
+
+    <div class="composer-wrap">
+      <form class="composer" id="form" autocomplete="off">
+        <textarea id="question" rows="1" placeholder="Pregunta algo sobre los papers…" aria-label="Tu pregunta" maxlength="1000"></textarea>
+        <button class="send" id="send" type="submit" aria-label="Enviar" disabled>
+          <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </form>
+      <p class="disclaimer">Las respuestas las genera un modelo de lenguaje. Comprueba las citas en los papers originales.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+const LOGO_SVG = '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>';
+const NOT_FOUND = "No encuentro información sobre eso en los documentos.";
+const EXAMPLES = [
+  { tag: "Fundamentos", q: "What is retrieval-augmented generation and why is it useful?" },
+  { tag: "Recuperación", q: "How does dense passage retrieval work?" },
+  { tag: "Evaluación", q: "What does Ragas measure?" },
+  { tag: "Modelos", q: "How does Self-RAG decide when to retrieve?" },
+];
+
+const $ = (id) => document.getElementById(id);
+const chat = $("chat"), form = $("form"), input = $("question"), sendBtn = $("send");
+let thread = null;      // container of the current conversation
+let busy = false;
+let messageId = 0;
+
+/* ---------- small helpers ---------- */
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "class") node.className = value;
+    else if (key === "html") node.innerHTML = value;           // only used with static strings
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  children.flat().forEach((c) => node.append(c));
+  return node;
+}
+function scrollDown() { chat.scrollTop = chat.scrollHeight; }
+function store(fn) { try { return fn(); } catch { return null; } }   // localStorage may be unavailable
+
+/* ---------- theme ---------- */
+function applyTheme(theme) { document.documentElement.dataset.theme = theme; }
+function initTheme() {
+  const saved = store(() => localStorage.getItem("theme"));
+  applyTheme(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  $("theme").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    store(() => localStorage.setItem("theme", next));
+  });
+}
+
+/* ---------- API (the only place that knows the contract) ---------- */
+async function askApi(question) {
+  const res = await fetch("/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      // FastAPI sends a string for HTTPException and a list of errors for validation (422).
+      detail = typeof body.detail === "string" ? body.detail : "La pregunta no es válida.";
+    } catch { /* ignore */ }
+    throw new Error(detail || "El servidor respondió con el código " + res.status);
+  }
+  return res.json();
+}
+async function checkHealth() {
+  const box = $("status");
+  try {
+    const res = await fetch("/health", { cache: "no-store" });
+    if (!res.ok) throw new Error();
+    box.className = "status ok"; $("status-text").textContent = "API en línea";
+  } catch {
+    box.className = "status down"; $("status-text").textContent = "Sin conexión";
+  }
+}
+
+/* ---------- markdown + math + citations ---------- */
+// Math is pulled out before Markdown runs (Markdown would eat the backslashes) and put back after.
+function extractMath(text) {
+  const items = [];
+  const stash = (tex, display) => { items.push({ tex, display }); return "@@MATH" + (items.length - 1) + "@@"; };
+  const out = text
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, t) => stash(t, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, t) => stash(t, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, t) => stash(t, false));
+  return { out, items };
+}
+function restoreMath(html, items) {
+  return html.replace(/@@MATH(\d+)@@/g, (_, i) => {
+    const { tex, display } = items[Number(i)];
+    if (window.katex) return katex.renderToString(tex, { displayMode: display, throwOnError: false });
+    const safe = tex.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    return "<code>" + safe + "</code>";
+  });
+}
+function renderMarkdown(target, text) {
+  if (!window.marked || !window.DOMPurify) { target.textContent = text; return; }   // offline fallback
+  const { out, items } = extractMath(text);
+  const html = DOMPurify.sanitize(marked.parse(out, { gfm: true, breaks: true }));
+  target.innerHTML = restoreMath(html, items);
+}
+function linkCitations(root, msgId, available) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => n.parentElement.closest("code, pre, a, .katex") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    if (!/\[\d+\]/.test(node.nodeValue)) return;
+    const frag = document.createDocumentFragment();
+    node.nodeValue.split(/(\[\d+\])/).forEach((part) => {
+      const m = part.match(/^\[(\d+)\]$/);
+      if (!m) { frag.append(part); return; }
+      const n = Number(m[1]);
+      frag.append(el("button", {
+        class: "cite", type: "button", title: available.has(n) ? "Ver fuente " + n : "Fuente no disponible",
+        ...(available.has(n) ? {} : { disabled: "" }),
+        onclick: () => focusSource(msgId, n),
+      }, String(n)));
+    });
+    node.replaceWith(frag);
+  });
+}
+function focusSource(msgId, n) {
+  const card = document.getElementById("src-" + msgId + "-" + n);
+  if (!card) return;
+  const parent = card.closest("details.others");
+  if (parent) parent.open = true;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.classList.add("flash");
+  setTimeout(() => card.classList.remove("flash"), 1600);
+}
+
+/* ---------- rendering messages ---------- */
+function sourceCard(msgId, s) {
+  const pct = Math.max(0, Math.min(100, Math.round(s.similarity * 100)));
+  return el("article", { class: "source", id: "src-" + msgId + "-" + s.number },
+    el("span", { class: "badge" }, String(s.number)),
+    el("div", { class: "source-body" },
+      el("a", { class: "source-title", href: "https://arxiv.org/pdf/" + s.arxiv_id + "#page=" + s.page, target: "_blank", rel: "noopener" }, s.title),
+      el("div", { class: "meta" },
+        el("span", {}, "arXiv:" + s.arxiv_id),
+        el("span", {}, "página " + s.page),
+        el("span", { class: "sim", title: "Similitud coseno con la pregunta" },
+          el("span", { class: "sim-bar" }, el("i", { style: "width:" + pct + "%" })),
+          s.similarity.toFixed(2))),
+      el("details", {}, el("summary", {}, "Ver fragmento"), el("p", { class: "snippet" }, s.snippet + "…"))));
+}
+function renderSources(msgId, sources, citedNumbers) {
+  const cited = sources.filter((s) => citedNumbers.has(s.number));
+  const shown = cited.length ? cited : sources;
+  const others = cited.length ? sources.filter((s) => !citedNumbers.has(s.number)) : [];
+  const wrap = el("section", { class: "sources" },
+    el("h3", { class: "sources-title" }, cited.length ? "Fuentes citadas" : "Fuentes consultadas"),
+    el("div", { class: "source-list" }, shown.map((s) => sourceCard(msgId, s))));
+  if (others.length) {
+    wrap.append(el("details", { class: "others" },
+      el("summary", {}, "Otros " + others.length + " fragmentos recuperados"),
+      el("div", { class: "source-list", style: "margin-top:8px" }, others.map((s) => sourceCard(msgId, s)))));
+  }
+  return wrap;
+}
+function renderAnswer(box, msgId, data) {
+  box.replaceChildren();
+  if (data.answer.trim() === NOT_FOUND) {
+    box.append(el("div", { class: "notfound" }, el("span", { html: "⚠️" }),
+      el("div", {}, el("strong", {}, NOT_FOUND),
+        el("span", {}, "Prueba a reformular la pregunta o a preguntar por un tema que cubran los papers del corpus."))));
+    return;
+  }
+  const body = el("div", { class: "answer-body" });
+  renderMarkdown(body, data.answer);
+  const available = new Set(data.sources.map((s) => s.number));
+  linkCitations(body, msgId, available);
+  box.append(body);
+
+  const copy = el("button", { class: "tool", type: "button" }, "Copiar");
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(data.answer); copy.textContent = "Copiado ✓"; }
+    catch { copy.textContent = "No se pudo copiar"; }
+    setTimeout(() => (copy.textContent = "Copiar"), 1500);
+  });
+  box.append(el("div", { class: "toolbar" }, copy));
+
+  if (data.sources.length) {
+    const cited = new Set([...data.answer.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1])));
+    box.append(renderSources(msgId, data.sources, cited));
+  }
+}
+
+function addUser(text) {
+  thread.append(el("div", { class: "row user" }, el("div", { class: "bubble-user" }, text)));
+  scrollDown();
+}
+function addPending() {
+  const box = el("div", { class: "answer" });
+  const stageText = el("span", {}, "Buscando fragmentos relevantes…");
+  const clock = el("span", {}, "0 s");
+  box.append(el("div", { class: "loading" },
+    el("div", { class: "loading-text" }, el("span", { class: "spinner" }), stageText, clock),
+    el("div", { class: "skeleton", style: "width:92%" }),
+    el("div", { class: "skeleton", style: "width:78%" }),
+    el("div", { class: "skeleton", style: "width:55%" })));
+  thread.append(el("div", { class: "row" }, el("div", { class: "avatar", html: LOGO_SVG }), box));
+  scrollDown();
+  const started = Date.now();
+  const timer = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    clock.textContent = s + " s";
+    if (s >= 4) stageText.textContent = "Generando la respuesta con el modelo local…";
+  }, 500);
+  return { box, stop: () => clearInterval(timer) };
+}
+
+async function ask(question) {
+  if (busy) return;
+  busy = true; updateSend();
+  ensureThread();
+  addUser(question);
+  const msgId = ++messageId;
+  const pending = addPending();
+  try {
+    const data = await askApi(question);
+    pending.stop();
+    renderAnswer(pending.box, msgId, data);
+  } catch (error) {
+    pending.stop();
+    pending.box.replaceChildren(el("div", { class: "error" },
+      el("strong", {}, "No se pudo obtener la respuesta"),
+      el("div", {}, error.message),
+      el("button", { type: "button", onclick: () => { pending.box.closest(".row").remove(); ask(question); } }, "Reintentar")));
+  } finally {
+    busy = false; updateSend();
+    scrollDown();
+    input.focus();
+  }
+}
+
+/* ---------- conversation + empty state ---------- */
+function ensureThread() {
+  if (thread) return;
+  chat.replaceChildren();
+  thread = el("div", { class: "thread" });
+  chat.append(thread);
+}
+function showEmpty() {
+  thread = null;
+  chat.replaceChildren(el("div", { class: "empty" },
+    el("div", { class: "logo", html: LOGO_SVG }),
+    el("h2", {}, "Pregunta a tus papers"),
+    el("p", {}, "Respuestas basadas solo en los documentos, con citas a paper y página. Si no está en el corpus, te lo dirá."),
+    el("div", { class: "chips" }, EXAMPLES.map((e) =>
+      el("button", { class: "chip", type: "button", onclick: () => ask(e.q) }, el("small", {}, e.tag), e.q)))));
+}
+
+/* ---------- composer ---------- */
+function updateSend() { sendBtn.disabled = busy || input.value.trim().length < 3; }
+function autoGrow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; }
+input.addEventListener("input", () => { autoGrow(); updateSend(); });
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+});
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = input.value.trim();
+  if (q.length < 3 || busy) return;
+  input.value = ""; autoGrow(); updateSend();
+  ask(q);
+});
+
+/* ---------- sidebar ---------- */
+EXAMPLES.forEach((e) => $("examples").append(el("button", { class: "example", type: "button", onclick: () => { closeNav(); ask(e.q); } }, e.q)));
+$("new-chat").addEventListener("click", () => { if (!busy) { showEmpty(); closeNav(); input.focus(); } });
+function closeNav() { document.body.classList.remove("nav-open"); }
+$("menu").addEventListener("click", () => document.body.classList.toggle("nav-open"));
+document.addEventListener("click", (e) => { if (document.body.classList.contains("nav-open") && !e.target.closest("#sidebar, #menu")) closeNav(); });
+
+/* ---------- start ---------- */
+initTheme();
+showEmpty();
+checkHealth();
+setInterval(checkHealth, 30000);
+input.focus();
+</script>
+</body>
+</html>
