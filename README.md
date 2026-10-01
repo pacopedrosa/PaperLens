@@ -2,7 +2,7 @@
 
 Ask questions in natural language about a collection of arXiv papers and get answers **grounded only in those documents**, with citations to the paper and page. If the answer is not in the corpus, PaperLens says so instead of making something up.
 
-<!-- TODO: add a real screenshot at docs/screenshot.png and reference it here -->
+![PaperLens answering a question with cited sources](docs/screenshot.png)
 
 ## Features
 
@@ -42,7 +42,7 @@ Python 3.11+ · FastAPI · PostgreSQL 16 + pgvector · sentence-transformers (`B
 ### Setup
 
 ```bash
-git clone <this-repo> && cd PaperLens
+git clone https://github.com/pacopedrosa/PaperLens.git && cd PaperLens
 
 cp .env.example .env              # adjust values if needed
 docker compose up -d              # PostgreSQL + pgvector (creates the schema on first start)
@@ -116,15 +116,27 @@ eval/                        golden set and evaluation script (Stage 2)
 
 ## Design decisions
 
-> Draft: to be rewritten in my own words.
+This is what I chose, what I gave up, and what I measured along the way.
 
-- **Chunks never cross page boundaries.** Each chunk belongs to exactly one page, so a citation always points to the right page. The cost is that a sentence spanning two pages is cut.
-- **Word-based chunk size.** 300 words is about 400 tokens. It avoids a tokenizer dependency while learning the mechanics; swapping in the real tokenizer is a one-function change.
-- **Default PDF reading order.** `sort=True` in PyMuPDF interleaves the two columns of scientific papers and produces unreadable text, so the default order is used.
-- **Cosine similarity with an HNSW index.** bge-m3 embeddings are normalized, and the index operator class matches the `<=>` operator used in the query.
-- **Idempotency by `arxiv_id`.** The pipeline checks the database before computing embeddings, which is the expensive step. Each paper is saved in one transaction, so a crash never leaves a document without chunks.
-- **No sources on a refusal.** When the model answers "not found", the retrieved chunks are not real sources, so none are returned.
-- **Single LLM entry point.** Everything calls `generate(system, user)`, so changing provider never touches the rest of the code.
+**No frameworks in Stage 1.** I wrote the pipeline by hand instead of using LangChain or LlamaIndex, because the goal was to understand every step: parsing, chunking, embedding, retrieval and prompting. Once the baseline is measured, comparing it against a framework version is a fair experiment.
+
+**Chunks never cross page boundaries.** I could have chunked the whole document and tracked which pages each chunk touches, but then a citation could point to the wrong page. Splitting per page keeps every citation exact. The cost is that a sentence running across two pages gets cut, and each page leaves a short trailing chunk (39 of the 1,842 chunks have fewer than 50 words). I have not tuned this yet; I will decide with the evaluation set instead of guessing.
+
+**Chunk size counted in words, not tokens.** 300 words with a 40-word overlap is roughly 400 and 50 tokens, which sits in the usual 300-500 range. Using the real tokenizer would be more precise, but counting words let me focus on the mechanics first. It is a one-function change when I want to test it.
+
+**Default PDF reading order.** On two-column papers, PyMuPDF's `sort=True` interleaves lines from both columns and breaks sentences in half, so I kept the default order. This is still imperfect: formulas and tables come out garbled, and end-of-line hyphenation (`ques- tion`) is not cleaned yet.
+
+**Cosine similarity with an HNSW index.** bge-m3 already returns normalized vectors, and the index operator class (`vector_cosine_ops`) matches the `<=>` operator in the query, so the index is actually used. If the embedding model changes, `vector(1024)` in `db/init.sql` has to change too.
+
+**Idempotent ingestion, one transaction per paper.** The pipeline asks the database whether a paper exists before computing embeddings, which is the slow part (about 25 seconds per paper on CPU). Each paper is saved atomically, so a crash never leaves a document without chunks. Running the real corpus also showed me that 30 chunks contain NUL characters, which PostgreSQL rejects in text columns, so they are stripped before saving.
+
+**The model must be able to say "I don't know".** Vector search always returns `k` results, even for an unrelated question. In my tests, relevant questions scored around 0.64-0.73 cosine similarity and an unrelated one around 0.39-0.46, so there is room for a similarity threshold, but I have not set one. For now the prompt forces a fixed refusal sentence, and when the model uses it the API returns no sources, because the retrieved chunks are not real evidence for anything.
+
+**One LLM entry point.** Everything calls `generate(system, user)`, and the provider is configuration. I run Ollama locally so the project costs nothing.
+
+**CPU-only trade-off.** On my machine (no GPU) a full answer takes about a minute, almost all of it in the 7B model. I accepted that for zero cost and full privacy. Streaming the answer is planned for Stage 4, since it is what makes the wait tolerable.
+
+**Tests that cannot touch real data.** The database tests run inside a transaction that is always rolled back. I added that after a first version of the tests leaked three test documents into my real database, because `save_document` opens a real transaction when none is open yet.
 
 ## Tests
 
