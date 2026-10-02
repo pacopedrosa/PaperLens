@@ -111,7 +111,7 @@ src/paperlens/
   rag.py                     retrieve -> prompt -> generate -> answer with sources
   api/                       FastAPI app and the web chat (static/index.html)
 tests/                       pytest suite
-eval/                        golden set and evaluation script (Stage 2)
+eval/                        golden_set.jsonl and run_eval.py (retrieval evaluation)
 ```
 
 ## Design decisions
@@ -144,19 +144,50 @@ This is what I chose, what I gave up, and what I measured along the way.
 python -m pytest -q
 ```
 
-29 tests: unit tests for parsing, chunking and the prompt; tests for the RAG pipeline and the API with the LLM and the database replaced by fakes; and integration tests against the real PostgreSQL, which run inside a transaction that is always rolled back and are skipped if the database is not available.
+43 tests: unit tests for parsing, chunking, the prompt and the evaluation metrics; checks that the golden set is well formed; tests for the RAG pipeline and the API with the LLM and the database replaced by fakes; and integration tests against the real PostgreSQL, which run inside a transaction that is always rolled back and are skipped if the database is not available.
 
 ## Roadmap
 
 - [x] **Stage 1**: ingestion pipeline and basic `/ask`, without frameworks
-- [ ] **Stage 2**: golden set (40-60 questions) and evaluation with recall@k and MRR
+- [x] **Stage 2**: golden set (40 questions) and evaluation with recall@k and MRR
 - [ ] **Stage 3**: better retrieval, each change measured: chunking strategies, hybrid search (BM25 + vectors), reranking
 - [ ] **Stage 4**: Next.js + TypeScript interface with streaming and citations
 - [ ] **Stage 5**: observability, caching and CI with automatic evaluation
 
 ## Evaluation results
 
-*The table with recall@k and MRR for each change will go here (Stage 2 onwards).*
+I measure retrieval on its own, without the LLM, so a full run takes seconds instead of minutes. If the right chunk never reaches the prompt, the model cannot answer correctly however good it is.
+
+```bash
+python -m eval.run_eval              # metrics only
+python -m eval.run_eval --failures   # also show what was returned for weak questions
+```
+
+### The golden set
+
+`eval/golden_set.jsonl` has 40 questions in Spanish, one JSON object per line: `id`, `question`, `answer`, `arxiv_id`, `pages` and `type`. 36 have an answer in the corpus (16 different papers; 16 factual, 17 conceptual, 3 paraphrased) and 4 are unanswerable on purpose (for example "What is the capital of Mongolia?"). Unanswerable questions have no correct chunk, so they are left out of the retrieval metrics; they are meant to check that the full system refuses.
+
+A retrieved chunk counts as correct when its paper matches and its page is in `pages`. I wrote the questions by paraphrasing, not copying the text, because a benchmark made of copied sentences only measures word overlap. I verified the pages against the real chunk text, and some questions do not name the paper (as a real user would not), which makes them harder.
+
+### Baseline (Stage 2)
+
+Dense search only: bge-m3 embeddings, cosine similarity, chunks of 300 words with 40 overlap. 36 questions.
+
+| Version | recall@1 | recall@3 | recall@5 | recall@10 | MRR |
+|---|---|---|---|---|---|
+| Baseline | 0.50 | 0.69 | 0.83 | 0.94 | 0.63 |
+
+recall@k is the share of questions with at least one correct chunk in the top k. MRR averages 1/rank of the first correct chunk, so it rewards putting it near the top. The API uses `k=5`, which means about one question in six never gets its evidence into the prompt.
+
+### What I learned from the first run
+
+My first numbers were lower (recall@5 0.72, MRR 0.52), but the search had not changed: my golden set was wrong. Reading the failures one by one showed that several correct chunks were being counted as misses because I had listed too few pages, and one question was so generic that it could belong to any paper. I fixed only the cases where the chunk text showed the answer, and I now treat this version as frozen so the numbers cannot drift upward by editing the exam.
+
+The failures that remain look real and are the starting point for Stage 3:
+
+- Numbers that appear in an abstract lose against tables full of similar numbers (the BM25 vs. DPR question).
+- A chunk that defines a term can lose against the introduction of the same paper when the question paraphrases the term (salient span masking).
+- Questions that do not name the paper can be pulled toward other papers on the same topic.
 
 ## License
 
