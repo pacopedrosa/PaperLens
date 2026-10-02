@@ -9,3 +9,4 @@ data/pdfs/*
 node_modules/
 .next/
 *.egg-info/
+CLAUDE.md
